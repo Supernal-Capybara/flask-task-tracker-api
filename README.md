@@ -27,12 +27,12 @@ How to Run
 
 # API Endpoints
 | Method | Endpoint     | Description                      |
-| ------ | ------------ | -------------------------------- |
+| ------ | -------------| -------------------------------- |
 | GET    | /tasks       | Get all tasks (supports filters) |
-| GET    | /tasks/<id>  | Get a single task                |
+| GET    | /tasks/{id}  | Get a single task                |
 | POST   | /tasks       | Create a new task                |
-| PATCH  | /tasks/<id>  | Update a task                    |
-| DELETE | /tasks/<id>  | Delete a task                    |
+| PATCH  | /tasks/{id}  | Update a task                    |
+| DELETE | /tasks/{id}  | Delete a task                    |
 
 
 Requirements
