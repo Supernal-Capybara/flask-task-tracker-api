@@ -32,12 +32,13 @@ Supported filters for GET /tasks are id, task_name, priority, status, and assign
 ## Local Setup
 1. Create and activate a virtual environment
 In PowerShell:
-`py -m venv .venv`
 
-`.venv\Scripts\Activate.ps1`
+- `py -m venv .venv`
+- `.venv\Scripts\Activate.ps1`
 
 Install the dependencies:
-`python -m pip install -r requirements.txt`
+
+- `python -m pip install -r requirements.txt`
 
 2. Create the PostgreSQL databases
 
@@ -57,30 +58,35 @@ The `task_tracker` table is created automatically when the application or test s
 
 3. Set the database password
 Store the password for `task_app` in an environment variable rather than in the source code:
-`$env:POSTGRES_PASSWORD = "your-password"`
+
+- `$env:POSTGRES_PASSWORD = "your-password"`
 
 This variable lasts for the current PowerShell session and must be set again after opening a new session.
 
 The application uses `task_tracker_db` by default. To select a different database, set the optional `POSTGRES_DB` variable:
-`$env:POSTGRES_DB = "database-name"`
+
+- `$env:POSTGRES_DB = "database-name"`
 
 Do not set `POSTGRES_DB` to `task_tracker_test_db` when running the development server because pytest clears the test table between tests.
 
 4. Run the application
-`python task_tracker.py`
 
-The API will be available at http://127.0.0.1:5000.
+- `python task_tracker.py`
+
+The API will be available at `http://127.0.0.1:5000`
 
 Example requests:
-http://127.0.0.1:5000/tasks
-http://127.0.0.1:5000/tasks?priority=urgent
-http://127.0.0.1:5000/tasks/1
+
+- `http://127.0.0.1:5000/tasks`
+- `http://127.0.0.1:5000/tasks?priority=urgent`
+- `http://127.0.0.1:5000/tasks/1`
 
 The included `api_client.py` demonstrates POST, GET, PATCH, and DELETE requests with the Requests library.
 
 ## Testing
 Run the test suite from the project directory:
-`python -m pytest -v`
+
+- `python -m pytest -v`
 
 The tests use Flask's test client and the dedicated `task_tracker_test_db` PostgreSQL database. The table is truncated and its identity sequence is reset before and after each test, keeping tests isolated from one another and from development data.
 
