@@ -1,26 +1,59 @@
 
 from flask import Flask, jsonify, request
-import sqlite3
 from pathlib import Path
+import os
+import psycopg
+from psycopg.rows import dict_row
 
-BASE_DIR = Path(__file__).parent
-DATABASE = BASE_DIR / "nexus_systems_task_tracker.db"
 
 app = Flask(__name__)
 
-def create_table(db_path):
+def get_db_connection():
+    password = os.environ.get("POSTGRES_PASSWORD")
+
+    if password is None:
+        raise RuntimeError(
+            "POSTGRES_PASSWORD environment variable is not set"
+        )
+
+    return psycopg.connect(
+        host="localhost",
+        port=5432,
+        dbname=os.environ.get("POSTGRES_DB", "task_tracker_db"),
+        user="task_app",
+        password=password,
+        row_factory=dict_row
+    )
+
+
+def create_table():
     try:
-        with sqlite3.connect(db_path) as conn:
-            cur = conn.cursor()
-            cur.execute("""CREATE TABLE IF NOT EXISTS task_tracker (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                task_name TEXT NOT NULL,
-                priority TEXT NOT NULL,
-                status TEXT NOT NULL,
-                assigned_to TEXT NOT NULL);""")
-            
-    except sqlite3.Error as e:
-        print(f"Error: {e}")   
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS task_tracker (
+                        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                        task_name TEXT NOT NULL,
+                        priority TEXT NOT NULL
+                            CHECK (priority IN ('routine', 'urgent')),
+                        status TEXT NOT NULL
+                            CHECK (
+                                status IN (
+                                    'not yet started',
+                                    'ongoing',
+                                    'completed'
+                                )
+                            ),
+                        assigned_to TEXT NOT NULL
+                    );
+                    """
+                )
+
+    except psycopg.Error as error:
+        print(f"Database error: {error}")
+
+
 
 @app.route("/tasks", methods=["POST"])
 def create_task():
@@ -57,20 +90,27 @@ def create_task():
     
     
     try:
-        with sqlite3.connect(DATABASE) as conn:
-            cur = conn.cursor()
-            cur.execute("INSERT INTO task_tracker (task_name, priority, status, assigned_to) \
-                VALUES (?,?,?,?)", (task_name, priority, status, assigned_to))
-            
-            return jsonify({
-                "id": cur.lastrowid,
-                "task_name": task_name,
-                "priority": priority,
-                "status": status,
-                "assigned_to": assigned_to
-            }), 201
-            
-    except sqlite3.Error:
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO task_tracker (
+                        task_name,
+                        priority,
+                        status,
+                        assigned_to
+                    )
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING id, task_name, priority, status, assigned_to;
+                    """,
+                    (task_name, priority, status, assigned_to)
+                )
+                
+                new_task = cursor.fetchone()
+
+                return jsonify(new_task), 201
+                
+    except psycopg.Error:
         return jsonify({"error": "database error"}), 500
 
 
@@ -109,57 +149,62 @@ def get_all_tasks():
     values = []
     
     if task_id:
-        conditions.append("id = ?")
+        conditions.append("id = %s")
         values.append(int(task_id))
-        
+
     if task_name:
-        conditions.append("LOWER(task_name) = LOWER(?)")
-        values.append(task_name)    
-        
+        conditions.append("LOWER(task_name) = LOWER(%s)")
+        values.append(task_name)
+
     if priority:
-        conditions.append("LOWER(priority) = LOWER(?)")
+        conditions.append("LOWER(priority) = LOWER(%s)")
         values.append(priority)
-    
+
     if status:
-        conditions.append("LOWER(status) = LOWER(?)")
+        conditions.append("LOWER(status) = LOWER(%s)")
         values.append(status)
-        
+
     if assigned_to:
-        conditions.append("LOWER(assigned_to) = LOWER(?)")
+        conditions.append("LOWER(assigned_to) = LOWER(%s)")
         values.append(assigned_to)
         
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
     
     try:
-        with sqlite3.connect(DATABASE) as conn:
-            conn.row_factory = sqlite3.Row
-            cur = conn.cursor()
-            cur.execute(query, values)
-            rows = cur.fetchall()
-            tasks = [dict(row) for row in rows]
-            
-            return jsonify(tasks), 200
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(query, values)
+                tasks = cursor.fetchall()
+                
+                return jsonify(tasks), 200
 
-    except sqlite3.Error:
+    except psycopg.Error:
         return jsonify({"error": "database error"}), 500
 
 
 @app.route("/tasks/<int:t_id>", methods=["GET"])
 def get_task_by_id(t_id): 
     try:
-        with sqlite3.connect(DATABASE) as conn:
-            conn.row_factory = sqlite3.Row
-            cur = conn.cursor()
-            cur.execute("SELECT id, task_name, priority, status, assigned_to FROM task_tracker \
-                        WHERE id = ?", (t_id, ))
-            row = cur.fetchone()
-            if row is not None:
-                return jsonify(dict(row)), 200
-            
-            return jsonify({"error": "task not found"}), 404
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT id, task_name, priority, status, assigned_to
+                    FROM task_tracker
+                    WHERE id = %s
+                    """,
+                    (t_id, )
+                )
+                
+                task = cursor.fetchone()
+
+                if task is not None:
+                    return jsonify(task), 200
+
+                return jsonify({"error": "task not found"}), 404
         
-    except sqlite3.Error:
+    except psycopg.Error:
         return jsonify({"error": "database error"}), 500
 
 
@@ -193,7 +238,7 @@ def update_task_by_id(t_id):
         if field == "status" and value not in valid_statuses:
             return jsonify({"error": "status must be 'not yet started', 'ongoing' or 'completed'"}), 400
         
-        updates.append(f"{field} = ?")
+        updates.append(f"{field} = %s")
         values.append(value)
 
     if not updates:
@@ -201,44 +246,55 @@ def update_task_by_id(t_id):
     
     values.append(t_id)
     
-    query = "UPDATE task_tracker SET " + ", ".join(updates) + " WHERE id = ?"
-    
+    query = (
+    "UPDATE task_tracker SET "
+    + ", ".join(updates)
+    + " WHERE id = %s "
+    + "RETURNING id, task_name, priority, status, assigned_to;"
+    )
+
     try:
-        with sqlite3.connect(DATABASE) as conn:
-            conn.row_factory = sqlite3.Row
-            cur = conn.cursor()
-            cur.execute(query, values)
-            if cur.rowcount == 0:
-                return jsonify({"error": "task not found"}), 404
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(query, values)
+                updated_task = cursor.fetchone()
 
-            cur.execute("SELECT id, task_name, priority, status, assigned_to FROM task_tracker WHERE id = ?",
-                        (t_id, ))
-            row = cur.fetchone()
-            
-            return jsonify(dict(row)), 200
+                if updated_task is None:
+                    return jsonify({"error": "task not found"}), 404
 
-    
-    except sqlite3.Error:
-        return jsonify({"error":"database error"}), 500
-    
+                return jsonify(updated_task), 200
+
+    except psycopg.Error:
+        return jsonify({"error": "database error"}), 500
+        
     
 
 @app.route("/tasks/<int:t_id>", methods=["DELETE"])
 def delete_task_by_id(t_id):
     try:
-        with sqlite3.connect(DATABASE) as conn:
-            cur = conn.cursor()
-            cur.execute("DELETE FROM task_tracker WHERE id = ?", (t_id, ))
-            if cur.rowcount == 1:
-                return jsonify({"message": f"task {t_id} deleted successfully"}), 200
-            
-            return jsonify({"error": "task not found"}), 404
-        
-    except sqlite3.Error:
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    DELETE FROM task_tracker
+                    WHERE id = %s
+                    RETURNING id;
+                    """,
+                    (t_id, )
+                )
+
+                deleted_task = cursor.fetchone()
+                
+                if deleted_task is not None:
+                    return jsonify({"message": f"task {t_id} deleted successfully"}), 200
+                
+                return jsonify({"error": "task not found"}), 404
+                
+    except psycopg.Error:
         return jsonify({"error": "database error"}), 500
     
 if __name__ == "__main__":
-    create_table(DATABASE)
+    create_table()
     app.run(debug=False)
 
 

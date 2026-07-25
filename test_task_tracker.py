@@ -2,14 +2,37 @@
 import task_tracker
 from task_tracker import app, create_task
 import pytest
-import sqlite3
+
 
 @pytest.fixture
-def client():
-    app.config["TESTING"] = True
+def test_db(monkeypatch):
+    monkeypatch.setenv("POSTGRES_DB", "task_tracker_test_db")
 
-    with app.test_client() as client:
+    task_tracker.create_table()
+
+    with task_tracker.get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "TRUNCATE TABLE task_tracker RESTART IDENTITY;"
+            )
+
+    yield
+
+    with task_tracker.get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "TRUNCATE TABLE task_tracker RESTART IDENTITY;"
+            )
+
+
+@pytest.fixture
+def client(test_db):
+    task_tracker.app.config["TESTING"] = True
+
+    with task_tracker.app.test_client() as client:
         yield client
+        
+        
         
   
 def test_sending_post_without_json_data(client):
@@ -20,25 +43,10 @@ def test_sending_post_without_json_data(client):
     assert response.status_code == 400
     assert data == {"error": "no data provided"}
     
-@pytest.fixture
-def test_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "test_task_tracker.db"
 
-    monkeypatch.setattr(task_tracker, "DATABASE", db_path)
-    task_tracker.create_table(db_path)
-
-    return db_path
-
-@pytest.fixture
-def client(test_db):
-    task_tracker.app.config["TESTING"] = True
-
-    with task_tracker.app.test_client() as client:
-        yield client
-        
         
 
-def test_successful_post_request(client, test_db):
+def test_successful_post_request(client):
     new_task = {
         "task_name": "Update inventory",
         "priority": "urgent",
@@ -57,18 +65,18 @@ def test_successful_post_request(client, test_db):
     assert data["assigned_to"] == new_task["assigned_to"]
     
     
-    with sqlite3.connect(test_db) as conn:
-        conn.row_factory = sqlite3.Row
-        cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT id, task_name, priority, status, assigned_to
-            FROM task_tracker
-            WHERE id = ?
-            """,
-            (data["id"],)
-        )
-        row = cur.fetchone()
+    
+    with task_tracker.get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT id, task_name, priority, status, assigned_to
+                FROM task_tracker
+                WHERE id = %s;
+                """,
+                (data["id"],)
+            )
+            row = cursor.fetchone()
 
 
     assert row is not None
