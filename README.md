@@ -57,6 +57,7 @@ OWNER task_app;
 The `task_tracker` table is created automatically when the application or test suite runs.
 
 3. Set the database password
+
 Store the password for `task_app` in an environment variable rather than in the source code:
 
 - `$env:POSTGRES_PASSWORD = "your-password"`
