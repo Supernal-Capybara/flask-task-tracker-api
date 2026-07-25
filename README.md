@@ -58,11 +58,19 @@ The `task_tracker` table is created automatically when the application or test s
 
 3. Set the database password
 
-Store the password for `task_app` in an environment variable rather than in the source code:
+In pgAdmin’s Query Tool, assign a password to the `task_app` role:
+```sql
+ALTER ROLE task_app
+WITH PASSWORD 'your-password';
+```
+
+Then store the same password in an environment variable rather than in the source code:
 
 - `$env:POSTGRES_PASSWORD = "your-password"`
 
-This variable lasts for the current PowerShell session and must be set again after opening a new session.
+This environment variable lasts for the current PowerShell session and must be set again after opening a new session.
+
+The SQL password and the environment-variable password must match. PostgreSQL stores the real role password; `POSTGRES_PASSWORD` merely tells the Python application what password to try.
 
 The application uses `task_tracker_db` by default. To select a different database, set the optional `POSTGRES_DB` variable:
 
