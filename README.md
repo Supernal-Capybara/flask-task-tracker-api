@@ -33,12 +33,14 @@ Supported filters for GET /tasks are id, task_name, priority, status, and assign
 1. Create and activate a virtual environment
 In PowerShell:
 `py -m venv .venv`
+
 `.venv\Scripts\Activate.ps1`
 
 Install the dependencies:
 `python -m pip install -r requirements.txt`
 
 2. Create the PostgreSQL databases
+
 The application connects with a PostgreSQL role named `task_app`. Create the development and test databases with that role as their owner:
 
 ```sql
